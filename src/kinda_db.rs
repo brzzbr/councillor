@@ -10,7 +10,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 enum ChatState {
     Unconfirmed,
     Confirmed(u64, Vec<ChatCompletionRequestMessage>),
@@ -58,14 +58,19 @@ impl KindaDb {
     }
 
     pub async fn chat_prev(&self, chat_id: ChatId) -> Vec<ChatCompletionRequestMessage> {
-        let state = self.state.read().await;
+        let curr_state;
+        {
+            let state = self.state.read().await;
+            curr_state = state.get(&chat_id).cloned();
+        }
+
         let now_sec = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        match state.get(&chat_id) {
-            Some(ChatState::Confirmed(updated, msgs)) if now_sec - updated < 1800 => msgs.clone(),
+        match curr_state {
+            Some(ChatState::Confirmed(updated, msgs)) if now_sec - updated < 1800 => msgs,
             Some(ChatState::Confirmed(_, _)) => {
                 let mut state = self.state.write().await;
                 state.insert(chat_id, ChatState::Confirmed(now_sec, vec![]));

@@ -38,15 +38,19 @@ pub async fn chat_msg(
     db: KindaDb,
     gpt_client: Client<OpenAIConfig>,
 ) -> HandlerResult {
+    let msg_txt = msg.text().unwrap_or("");
+    log::info!("msg from {}: {}", msg.chat.id, msg_txt);
+
     let is_user_accepted = db.is_accepted(msg.chat.id).await;
     if is_user_accepted {
-        let msg_txt = msg.text().unwrap_or("");
         let mut chat_prev = db.chat_prev(msg.chat.id).await;
 
         let mut msgs = vec![
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::System)
-                .content("Ты канцелярский ассистент. Ты помогаешь вести деловую переписку на русском языке.")
+                .content("Ты канцелярский ассистент и секретарь. \
+                Ты помогаешь вести деловую переписку на русском языке, составлять статьи и искать нужную информацию. \
+                Так же ты хороший переводчик и владеешь всеми языками мира.")
                 .build()?
         ];
 

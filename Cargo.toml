@@ -1,0 +1,26 @@
+[package]
+name = "councillor"
+version = "0.1.0"
+edition = "2021"
+authors = ["brzzbr"]
+
+[[bin]]
+name = "councillor-runner"
+path = "src/main.rs"
+
+[package.metadata.cross.target.armv7-unknown-linux-musleabihf]
+image = "ghcr.io/cross-rs/armv7-unknown-linux-musleabihf:0.2.4"
+xargo = false
+
+[dependencies]
+async-openai = "0.14.0"
+async-trait = "0.1.68"
+dotenv = "0.15.0"
+tokio = { version = "1.28.2", features = ["full"] }
+openssl = { version = "*", features = ["vendored"] }
+config = "0.13.3"
+teloxide = { version = "0.12.2", features = ["macros"] }
+log = "0.4.0"
+pretty_env_logger = "0.5.0"
+serde = "1.0.163"
+serde_json = "1.0.96"

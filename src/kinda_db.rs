@@ -63,6 +63,7 @@ impl KindaDb {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
+
         match state.get(&chat_id) {
             Some(ChatState::Confirmed(updated, msgs)) if now_sec - updated < 1800 => msgs.clone(),
             Some(ChatState::Confirmed(_, _)) => {
@@ -79,7 +80,7 @@ impl KindaDb {
     pub async fn add_to_chat(&self, chat_id: ChatId, role: Role, msg: String) {
         let mut state = self.state.write().await;
 
-        if let Some(ChatState::Confirmed(_, msgs)) = state.get(&chat_id) {
+        if let Some(ChatState::Confirmed(conv_start, msgs)) = state.get(&chat_id) {
             let chat_path = format!("{}/{}.txt", self.path, chat_id);
             let mut chat_file = fs::OpenOptions::new()
                 .create(true)
@@ -91,11 +92,6 @@ impl KindaDb {
             let chunk = format!("{}***\n{}***\n", serde_json::to_string(&role).unwrap(), msg);
             chat_file.write_all(chunk.as_bytes()).await.unwrap();
 
-            let now_sec = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-
             let req_msg = ChatCompletionRequestMessage {
                 role,
                 content: Some(msg),
@@ -104,7 +100,7 @@ impl KindaDb {
             };
             let mut new_msgs = msgs.clone();
             new_msgs.push(req_msg);
-            let new_state = ChatState::Confirmed(now_sec, new_msgs);
+            let new_state = ChatState::Confirmed(conv_start.clone(), new_msgs);
             state.insert(chat_id, new_state);
         }
 

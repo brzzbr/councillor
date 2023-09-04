@@ -62,19 +62,26 @@ pub async fn chat_msg(
         msgs.append(&mut chat_prev);
         msgs.push(new_request_msg);
 
+        log::info!("building request from {}", msg.chat.id);
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(1024u16)
             .model("gpt-4")
             .messages(msgs)
             .build()?;
+        log::info!("request built from {}", msg.chat.id);
 
         let response = gpt_client.chat().create(request).await?;
+        log::info!("got response to {}", msg.chat.id);
+
         db.add_to_chat(msg.chat.id, Role::User, msg_txt.to_string()).await;
+        log::info!("orig msg added to chat {}", msg.chat.id);
 
         for choice in response.choices {
             let response_txt = choice.message.content.unwrap_or("".to_string());
             let _ = bot.send_message(msg.chat.id, response_txt.clone()).await;
+            log::info!("response sent to {}", msg.chat.id);
             db.add_to_chat(msg.chat.id, Role::Assistant, response_txt).await;
+            log::info!("response msg added to chat {}", msg.chat.id);
         }
     } else {
         bot.send_message(msg.chat.id, "Ваша заявка ещё не подтверждена").await?;

@@ -32,20 +32,25 @@ impl KindaDb {
     }
 
     pub async fn confirm(&self, chat_id: ChatId) {
-        let mut state = self.state.write().await;
-        let now_sec = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        state.insert(chat_id, ChatState::Confirmed(now_sec, vec![]));
         self.reset_chat(chat_id).await;
+    }
+
+    pub async fn reset_chat(&self, chat_id: ChatId) {
+        let mut state = self.state.write().await;
+        let chat_path = format!("{}/{}.txt", self.path, chat_id);
+        let _ = fs::remove_file(chat_path).await;
+
+        let new_state = ChatState::Confirmed(now_sec(), vec![]);
+        state.insert(chat_id, new_state.clone());
         self.save_state(&state).await;
     }
 
     pub async fn delete(&self, chat_id: ChatId) {
         let mut state = self.state.write().await;
         state.remove(&chat_id);
-        self.reset_chat(chat_id).await;
+
+        let chat_path = format!("{}/{}.txt", self.path, chat_id);
+        let _ = fs::remove_file(chat_path).await;
         self.save_state(&state).await;
     }
 
@@ -64,18 +69,10 @@ impl KindaDb {
             curr_state = state.get(&chat_id).cloned();
         }
 
-        let now_sec = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
         match curr_state {
-            Some(ChatState::Confirmed(updated, msgs)) if now_sec - updated < 1800 => msgs,
+            Some(ChatState::Confirmed(updated, msgs)) if now_sec() - updated < 1800 => msgs,
             Some(ChatState::Confirmed(_, _)) => {
-                let mut state = self.state.write().await;
-                state.insert(chat_id, ChatState::Confirmed(now_sec, vec![]));
                 self.reset_chat(chat_id).await;
-                self.save_state(&state).await;
                 vec![]
             }
             _ => vec![],
@@ -110,11 +107,6 @@ impl KindaDb {
         }
 
         self.save_state(&state).await;
-    }
-
-    pub async fn reset_chat(&self, chat_id: ChatId) {
-        let chat_path = format!("{}/{}.txt", self.path, chat_id);
-        let _ = fs::remove_file(chat_path).await;
     }
 
     pub async fn new(path: String) -> KindaDb {
@@ -197,4 +189,11 @@ impl KindaDb {
 
         fs::write(db_path, state_str).await.unwrap()
     }
+}
+
+fn now_sec() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }

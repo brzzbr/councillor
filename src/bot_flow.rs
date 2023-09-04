@@ -5,15 +5,28 @@ use teloxide::Bot;
 use teloxide::dispatching::UpdateHandler;
 use teloxide::macros::BotCommands;
 use teloxide::prelude::*;
-use teloxide::types::{ChatMemberKind, InlineKeyboardButton, InlineKeyboardMarkup};
+use teloxide::types::{BotCommand, ChatMemberKind, InlineKeyboardButton, InlineKeyboardMarkup, MenuButton};
 
 use crate::AppConfig;
 use crate::kinda_db::KindaDb;
 
+trait UserName {
+    fn get_user_name(&self) -> String;
+}
+
+impl UserName for Message {
+    fn get_user_name(&self) -> String {
+        self.from().map(|u| u.full_name()).unwrap_or("unknown".to_string())
+    }
+}
+
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 pub enum Command {
+    #[command(description = "начать работу с ботом")]
     Start,
+    #[command(description = "начать новый разговор (полезно, чтобы не перегружать бота)")]
+    New,
 }
 
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -26,7 +39,8 @@ pub fn schema() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'stat
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
-                .branch(case![Command::Start].endpoint(start)),
+                .branch(case![Command::Start].endpoint(start))
+                .branch(case![Command::New].endpoint(new_chat)),
         )
         .branch(Update::filter_message().endpoint(chat_msg))
         .branch(Update::filter_callback_query().endpoint(admin_callback))
@@ -38,8 +52,9 @@ pub async fn chat_msg(
     db: KindaDb,
     gpt_client: Client<OpenAIConfig>,
 ) -> HandlerResult {
+    let user_name = msg.get_user_name();
     let msg_txt = msg.text().unwrap_or("");
-    log::info!("msg from {}: {}", msg.chat.id, msg_txt);
+    log::info!("msg from {} {}: {}", user_name, msg.chat.id, msg_txt);
 
     let is_user_accepted = db.is_accepted(msg.chat.id).await;
     if is_user_accepted {
@@ -91,7 +106,7 @@ pub async fn chat_msg(
 }
 
 pub async fn start(bot: Bot, msg: Message, db: KindaDb, app_cfg: AppConfig) -> HandlerResult {
-    let user_name = msg.from().map(|u| u.full_name()).unwrap_or("unknown".to_string());
+    let user_name = msg.get_user_name();
     log::info!("{} {} joined",user_name,msg.chat.id);
 
     db.register(msg.chat.id).await;
@@ -105,7 +120,27 @@ pub async fn start(bot: Bot, msg: Message, db: KindaDb, app_cfg: AppConfig) -> H
         .reply_markup(InlineKeyboardMarkup::new(vec![admin_btn_rows]))
         .await?;
 
+    bot.set_my_commands(vec![BotCommand::new("new", "начать новый разговор (полезно, чтобы не перегружать бота)")]).await?;
+
+    bot.set_chat_menu_button()
+        .chat_id(msg.chat.id)
+        .menu_button(MenuButton::Commands)
+        .await?;
+
     bot.send_message(msg.chat.id, "Приветствую! Заявка на рассмотрении...").await?;
+    Ok(())
+}
+
+pub async fn new_chat(bot: Bot, msg: Message, db: KindaDb) -> HandlerResult {
+    let is_user_accepted = db.is_accepted(msg.chat.id).await;
+
+    if is_user_accepted {
+        let user_name = msg.get_user_name();
+        log::info!("{} {} started new chat", user_name, msg.chat.id);
+        db.reset_chat(msg.chat.id).await;
+        bot.send_message(msg.chat.id, "Советчик к Вашим услугам").await?;
+    }
+
     Ok(())
 }
 
@@ -127,17 +162,13 @@ pub async fn admin_callback(
             match maybe_cmd_and_chat {
                 Some(("accept", chat_id)) => {
                     db.confirm(chat_id).await;
-                    bot.send_message(
-                        chat_id,
-                        "Заявка одобрена! Советчик к Вашим услугам",
-                    ).await?;
+                    log::info!("{} {} accepted", q.from.full_name(), chat_id);
+                    bot.send_message(chat_id, "Заявка одобрена! Советчик к Вашим услугам").await?;
                 }
                 Some(("decline", chat_id)) => {
                     db.delete(chat_id).await;
-                    bot.send_message(
-                        chat_id,
-                        "Заявка отклонена...",
-                    ).await?;
+                    log::info!("{} {} declined", q.from.full_name(), chat_id);
+                    bot.send_message(chat_id, "Заявка отклонена...").await?;
                 }
                 _ => log::warn!("unexpected callback {}", cmd),
             }
@@ -153,11 +184,7 @@ pub async fn chat_member(mmbr: ChatMemberUpdated, db: KindaDb) -> HandlerResult 
     let new_member = mmbr.new_chat_member.clone();
 
     if new_member.kind != ChatMemberKind::Member {
-        log::info!(
-            "user {} {} left",
-            new_member.user.full_name(),
-            new_member.user.id
-        );
+        log::info!("{} {} left",mmbr.from.full_name(),mmbr.chat.id);
         db.delete(new_member.user.id.into()).await;
     }
 

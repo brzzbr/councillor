@@ -54,7 +54,7 @@ pub async fn chat_msg(
 ) -> HandlerResult {
     let user_name = msg.get_user_name();
     let msg_txt = msg.text().unwrap_or("");
-    log::info!("msg from {} {}: {}", user_name, msg.chat.id, msg_txt);
+    log::info!("msg from {} {}", user_name, msg.chat.id);
 
     let is_user_accepted = db.is_accepted(msg.chat.id).await;
     if is_user_accepted {

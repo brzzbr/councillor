@@ -18,6 +18,8 @@ enum ChatState {
 
 type ConsistentState = Arc<RwLock<HashMap<ChatId, ChatState>>>;
 
+
+// It's kinda DB:) Persists bots state in filesystem.
 #[derive(Clone)]
 pub struct KindaDb {
     path: String,

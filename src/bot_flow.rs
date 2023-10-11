@@ -79,7 +79,7 @@ pub async fn chat_msg(
 
         log::info!("building request from {}", msg.chat.id);
         let request = CreateChatCompletionRequestArgs::default()
-            .max_tokens(1024u16)
+            .max_tokens(4096u16)
             .model("gpt-4")
             .messages(msgs)
             .build()?;

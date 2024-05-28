@@ -1,6 +1,7 @@
+use std::time;
 use async_openai::Client;
 use async_openai::config::OpenAIConfig;
-use async_openai::types::{ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role};
+use async_openai::types::{ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, Role};
 use teloxide::Bot;
 use teloxide::dispatching::UpdateHandler;
 use teloxide::macros::BotCommands;
@@ -61,18 +62,20 @@ pub async fn chat_msg(
         let mut chat_prev = db.chat_prev(msg.chat.id).await;
 
         let mut msgs = vec![
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content("Ты канцелярский ассистент и секретарь. \
-                Ты помогаешь вести деловую переписку на русском языке, составлять статьи и искать нужную информацию. \
-                Так же ты хороший переводчик и владеешь всеми языками мира.")
+            ChatCompletionRequestSystemMessageArgs::default()
+                .content("Ты ассистент и секретарь. Твой основной язык русский. \
+                Ты помогаешь вести деловую переписку и искать нужную информацию. \
+                Так же ты хороший переводчик и владеешь всеми языками мира. \
+                Ты опытен в составлении статей и имеешь широкий кругозор в науках и \
+                программировании.")
                 .build()?
+                .into()
         ];
 
-        let new_request_msg = ChatCompletionRequestMessageArgs::default()
-            .role(Role::User)
+        let new_request_msg = ChatCompletionRequestUserMessageArgs::default()
             .content(msg_txt)
-            .build()?;
+            .build()?
+            .into();
 
         msgs.append(&mut chat_prev);
         msgs.push(new_request_msg);
@@ -80,7 +83,7 @@ pub async fn chat_msg(
         log::info!("building request from {}", msg.chat.id);
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(4096u16)
-            .model("gpt-4")
+            .model("gpt-4o")
             .messages(msgs)
             .build()?;
         log::info!("request built from {}", msg.chat.id);
@@ -93,7 +96,14 @@ pub async fn chat_msg(
 
         for choice in response.choices {
             let response_txt = choice.message.content.unwrap_or("".to_string());
-            let _ = bot.send_message(msg.chat.id, response_txt.clone()).await;
+
+            while bot
+                .send_message(msg.chat.id, response_txt.clone())
+                .await
+                .is_err() {
+                tokio::time::sleep(time::Duration::from_secs(1)).await;
+            }
+
             log::info!("response sent to {}", msg.chat.id);
             db.add_to_chat(msg.chat.id, Role::Assistant, response_txt).await;
             log::info!("response msg added to chat {}", msg.chat.id);

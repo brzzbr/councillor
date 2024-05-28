@@ -3,7 +3,7 @@ use std::path;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use async_openai::types::{ChatCompletionRequestMessage, Role};
+use async_openai::types::{ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestFunctionMessageArgs, ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs, Role};
 use serde::{Deserialize, Serialize};
 use teloxide::prelude::ChatId;
 use tokio::fs;
@@ -96,12 +96,7 @@ impl KindaDb {
             let chunk = format!("{}***\n{}***\n", serde_json::to_string(&role).unwrap(), msg);
             chat_file.write_all(chunk.as_bytes()).await.unwrap();
 
-            let req_msg = ChatCompletionRequestMessage {
-                role,
-                content: Some(msg),
-                name: None,
-                function_call: None,
-            };
+            let req_msg = str_to_msg(role, msg);
             let mut new_msgs = msgs.clone();
             new_msgs.push(req_msg);
             let new_state = ChatState::Confirmed(conv_start.clone(), new_msgs);
@@ -148,12 +143,7 @@ impl KindaDb {
                                     chat_state_vec.chunks(2).map(|ch| {
                                         let role: Role = serde_json::from_str(ch[0]).unwrap();
                                         let msg = ch[1].to_string();
-                                        ChatCompletionRequestMessage {
-                                            role,
-                                            content: Some(msg),
-                                            name: None,
-                                            function_call: None,
-                                        }
+                                        str_to_msg(role, msg)
                                     }).collect()
                                 }
                                 false => vec![]
@@ -190,6 +180,16 @@ impl KindaDb {
         );
 
         fs::write(db_path, state_str).await.unwrap()
+    }
+}
+
+fn str_to_msg(role: Role, msg: String) -> ChatCompletionRequestMessage {
+    match role {
+        Role::System => ChatCompletionRequestSystemMessageArgs::default().content(msg).build().unwrap().into(),
+        Role::User => ChatCompletionRequestUserMessageArgs::default().content(msg).build().unwrap().into(),
+        Role::Assistant => ChatCompletionRequestAssistantMessageArgs::default().content(msg).build().unwrap().into(),
+        Role::Tool => ChatCompletionRequestToolMessageArgs::default().content(msg).build().unwrap().into(),
+        Role::Function => ChatCompletionRequestFunctionMessageArgs::default().content(msg).build().unwrap().into(),
     }
 }
 

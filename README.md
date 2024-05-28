@@ -8,7 +8,3 @@ APP__ADMIN_ID  // bot's owner, who's apporving / rejecting users attempting to r
 OPENAI_API_KEY // openai api key, you know :)
 TELOXIDE_TOKEN // telegram bot token, refer to https://t.me/botfather
 ```
-
-### build and deploy
-
-I run it on my RaspberryPI, in case you want to build it for something else, please tweak `deploy`. 

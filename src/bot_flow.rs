@@ -1,4 +1,5 @@
 use std::time;
+
 use async_openai::Client;
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, Role};
@@ -7,9 +8,14 @@ use teloxide::dispatching::UpdateHandler;
 use teloxide::macros::BotCommands;
 use teloxide::prelude::*;
 use teloxide::types::{BotCommand, ChatMemberKind, InlineKeyboardButton, InlineKeyboardMarkup, MenuButton};
+use tokio::time::timeout;
+use tokio_retry::Retry;
+use tokio_retry::strategy::FixedInterval;
 
 use crate::AppConfig;
 use crate::kinda_db::KindaDb;
+
+const MESSAGE_LIMIT: usize = 4096;
 
 trait UserName {
     fn get_user_name(&self) -> String;
@@ -94,20 +100,52 @@ pub async fn chat_msg(
         db.add_to_chat(msg.chat.id, Role::User, msg_txt.to_string()).await;
         log::info!("orig msg added to chat {}", msg.chat.id);
 
+        let mut all_responses_txt = vec![];
         for choice in response.choices {
             let response_txt = choice.message.content.unwrap_or("".to_string());
+            let retry_strategy = FixedInterval::from_millis(5000);
 
-            while bot
-                .send_message(msg.chat.id, response_txt.clone())
-                .await
-                .is_err() {
-                tokio::time::sleep(time::Duration::from_secs(1)).await;
+            let mut start_index = 0;
+            let mut end_index;
+
+            while start_index < response_txt.len() {
+                end_index = start_index + MESSAGE_LIMIT;
+
+                if end_index > response_txt.len() {
+                    end_index = response_txt.len();
+                } else if let Some(space_index) = response_txt[..end_index].rfind(' ') {
+                    end_index = space_index + 1;
+                }
+
+                let send_response = || async {
+                    let part = &response_txt[start_index..end_index];
+                    let send_message_future = bot.send_message(msg.chat.id, part).send();
+
+                    match timeout(time::Duration::from_secs(5), send_message_future).await {
+                        Ok(Ok(ok)) => { Ok(ok) }
+                        Ok(Err(err)) => {
+                            log::error!("send response errored, going to retry {}: {}", msg.chat.id, err);
+                            Err(())
+                        }
+                        Err(_) => {
+                            log::error!("send response timeouted, going to retry {}", msg.chat.id);
+                            Err(())
+                        }
+                    }
+                };
+
+                let _ = Retry::spawn(retry_strategy.clone(), send_response).await;
+
+                start_index = end_index;
             }
 
+
             log::info!("response sent to {}", msg.chat.id);
-            db.add_to_chat(msg.chat.id, Role::Assistant, response_txt).await;
-            log::info!("response msg added to chat {}", msg.chat.id);
+            all_responses_txt.push(response_txt);
         }
+
+        db.add_to_chat(msg.chat.id, Role::Assistant, all_responses_txt.join(" ")).await;
+        log::info!("response msg added to chat {}", msg.chat.id);
     } else {
         bot.send_message(msg.chat.id, "Ваша заявка ещё не подтверждена").await?;
     }

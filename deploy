@@ -12,5 +12,5 @@ readonly SOURCE_PATH=target/${TARGET_ARCH}/release/councillor-runner
 
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=${TARGET_ARCH}-gcc cargo build --release --target=${TARGET_ARCH}
 
-rsync ${SOURCE_PATH} ${TARGET_HOST}:${TARGET_PATH}
+rsync -aiz --progress ${SOURCE_PATH} ${TARGET_HOST}:${TARGET_PATH}
 ssh -t ${TARGET_HOST} sudo systemctl restart councillor-bot.service
